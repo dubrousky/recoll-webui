@@ -27,6 +27,15 @@ try:
     from recoll import rclconfig
 except:
     import rclconfig
+# import pygments
+try:
+  haspygments = True
+  from pygments import highlight
+  from pygments.lexers import guess_lexer
+  from pygments.formatters import HtmlFormatter
+except:
+  haspygments = False
+  print "No pygments library found - source code highlight is not available"
 #}}}
 #{{{ settings
 # settings defaults
@@ -255,11 +264,20 @@ def preview(resnum):
     doc = rclq.fetchone()
     xt = rclextract.Extractor(doc)
     tdoc = xt.textextract(doc.ipath)
+    result = tdoc.text
     if tdoc.mimetype == 'text/html':
         bottle.response.content_type = 'text/html; charset=utf-8'
+    else if haspygments:
+        lexer = guess_lexer(tdoc.text)
+        if None != lexer:
+            bottle.response.content_type = 'text/html; charset=utf-8'
+            formatter = HtmlFormatter(linenos=True, cssclass="source",full=True)
+            result = highlight(tdoc.text, lexer, formatter)
+        else:
+            bottle.response.content_type = 'text/plain; charset=utf-8'
     else:
         bottle.response.content_type = 'text/plain; charset=utf-8'
-    return tdoc.text
+    return result
 #}}}
 #{{{ download
 @bottle.route('/download/<resnum:int>')
