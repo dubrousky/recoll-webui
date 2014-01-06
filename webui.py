@@ -32,6 +32,9 @@ try:
   haspygments = True
   from pygments import highlight
   from pygments.lexers import guess_lexer
+  from pygments.lexers import get_lexer_for_filename
+  from pygments.lexers import get_lexer_for_mimetype
+  from pygments.lexers import ClassNotFound
   from pygments.formatters import HtmlFormatter
 except:
   haspygments = False
@@ -47,6 +50,30 @@ DEFAULTS = {
     'maxchars': 500,
     'maxresults': 0,
     'perpage': 25,
+    'highlight': True and haspygments,
+    'haspygments': haspygments,
+    'usemime': False
+}
+# preview defaults
+PREVIEW = {
+    'hl_lines': [1,], #
+    'nowrap': False, # If set to True, don't wrap the tokens at all, not even inside a <pre> tag. This disables most other options (default: False).
+    'full'  : True, # Tells the formatter to output a "full" document, i.e. a complete self-contained document (default: False).
+    'title' : '',    # If full is true, the title that should be used to caption the document (default: '').
+    'style' : 'default', # The style to use, can be a string or a Style subclass (default: 'default'). This option has no effect if the cssfile and noclobber_cssfile option are given and the file specified in cssfile exists.
+    'linenos': 'table', # If set to 'table', output line numbers as a table with two cells, one containing the line numbers, the other the whole code. This is copy-and-paste-friendly, but may cause alignment problems with some browsers or fonts. If set to 'inline', the line numbers will be integrated in the <pre> tag that contains the code (that setting is new in Pygments 0.8). For compatibility with Pygments 0.7 and earlier, every true value except 'inline' means the same as 'table' (in particular, that means also True).
+    'linenostart': 1,# The line number for the first line (default: 1).
+    'linenostep': 1,# If set to a number n > 1, only every nth line number is printed.
+    'linenospecial': 0,# If set to a number n > 0, every nth line number is given the CSS class "special" (default: 0).
+    'lineanchors': '',
+    'linespans': '',
+    'anchorlinenos': False, # If set to True, will wrap line numbers in <a> tags. Used in combination with linenos and lineanchors.
+    'nobackground': False,# If set to True, the formatter won't output the background color for the wrapping element.
+    'cssclass': 'source', # CSS class for the wrapping <div> tag (default: 'highlight'). 
+    'classprefix': '', # Inline CSS styles for the wrapping <div> tag (default: '').
+    'encoding': 'utf-8',
+    'outencoding': 'utf-8',
+    'options': "style='inline'"
 }
 
 # sort fields/labels
@@ -123,6 +150,14 @@ def get_config():
     for d in config['dirs']:
         name = 'mount_%s' % urllib.quote(d,'')
         config['mounts'][d] = select([bottle.request.get_cookie(name), 'file://%s' % d], [None, ''])
+    return config
+#}}}
+#{{{
+def get_preview_config():
+    config = {}
+    for k, v in PREVIEW.items():
+        value = select([bottle.request.get_cookie(k), v])
+        config[k] = type(v)(value) if str(v) != value else v
     return config
 #}}}
 #{{{ get_dirs
@@ -244,10 +279,15 @@ def results():
         config['maxresults'] = nres
     if config['perpage'] == 0:
         config['perpage'] = nres
-    return { 'res': res, 'time': timer, 'query': query, 'dirs':
-            get_dirs(config['dirs'], config['dirdepth']),
-             'qs': qs, 'sorts': SORTS, 'config': config,
-            'query_string': bottle.request.query_string, 'nres': nres,
+    return { 'res': res,
+             'time': timer,
+             'query': query,
+             'dirs': get_dirs(config['dirs'], config['dirdepth']),
+             'qs': qs,
+             'sorts': SORTS,
+             'config': config,
+             'query_string': bottle.request.query_string,
+             'nres': nres,
              'hasrclextract': hasrclextract }
 #}}}
 #{{{ preview
@@ -265,13 +305,25 @@ def preview(resnum):
     xt = rclextract.Extractor(doc)
     tdoc = xt.textextract(doc.ipath)
     result = tdoc.text
+    cfg = get_config()
     if tdoc.mimetype == 'text/html':
         bottle.response.content_type = 'text/html; charset=utf-8'
-    else if haspygments:
-        lexer = guess_lexer(tdoc.text)
+    elif haspygments and cfg['highlight']:
+        try:
+            if cfg['usemime']:
+	      try:
+	        lexer = get_lexer_for_mimetype(doc.mimetype)
+	      except ClassNotFound:
+		lexer = get_lexer_for_filename(doc.url)
+            else:
+                lexer = get_lexer_for_filename(doc.url)
+        except ClassNotFound:
+	    print "No lexer found for %s with mime type '%s'" % (doc.url,doc.mimetype)
+	    lexer = None
         if None != lexer:
             bottle.response.content_type = 'text/html; charset=utf-8'
-            formatter = HtmlFormatter(linenos=True, cssclass="source",full=True)
+            # depending on the lexer type apply the config for formatted output
+            formatter = HtmlFormatter(**get_preview_config())
             result = highlight(tdoc.text, lexer, formatter)
         else:
             bottle.response.content_type = 'text/plain; charset=utf-8'
@@ -346,14 +398,27 @@ def get_csv():
 def settings():
     return get_config()
 
+@bottle.route('/pygments')
+@bottle.view('pygments')
+def pygments():
+    return get_preview_config() if haspygments else {} 
+
 @bottle.route('/set')
 def set():
     config = get_config()
     for k, v in DEFAULTS.items():
-        bottle.response.set_cookie(k, str(bottle.request.query.get(k)), max_age=3153600000)
+        bottle.response.set_cookie(k, str(bottle.request.query.get(k)), max_age=3153600000, domain='localhost')
     for d in config['dirs']:
         cookie_name = 'mount_%s' % urllib.quote(d, '')
-        bottle.response.set_cookie(cookie_name, str(bottle.request.query.get('mount_%s' % d)), max_age=3153600000)
+        bottle.response.set_cookie(cookie_name, str(bottle.request.query.get('mount_%s' % d)), max_age=3153600000, domain='localhost')
+    bottle.redirect('./')
+
+@bottle.route('/setpygments')
+def setpygments():
+    for k, v in PREVIEW.items():
+        update = select([bottle.request.query.get(k),v])
+        bottle.response.set_cookie(k, str(update), max_age=3153600000, domain='')
+    # update config raw options
     bottle.redirect('./')
 #}}}
 #{{{ osd
