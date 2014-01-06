@@ -17,6 +17,20 @@
 	<b>Folder depth</b> <small class="gray">(number of levels of the folder dropdown)</small>
 	<input name="dirdepth" value={{dirdepth}}>
 	<hr>
+	%if haspygments:
+	    <b>Enable pygments</b> <small class="gray">(enables source file syntax highlight in preview if True)</small>
+	    <input name="highlight" value={{highlight}}>
+	    %if highlight:
+	        <b>Use MIME-type to guess lexer rather filename</b>
+	        <small class="gray">(uses mime-based guess on how to preview file content)</small>
+	        <input name="usemime" value={{usemime}}><br>
+	        <a href="/pygments">Configure pygments options</a>
+	    %end
+	    <hr>
+	%else:
+	    <b>No pygments library found</b> <small class="gray">(Install pygments to enable source file syntax highlight in preview)</small>
+	    <hr>
+	%end
 	<b>Locations</b><br>
 	%for d in dirs:
 		<small>{{d}}</small><input name="mount_{{d}}" value={{mounts[d]}}>
